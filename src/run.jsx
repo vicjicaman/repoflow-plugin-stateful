@@ -74,8 +74,11 @@ export const start = (params, cxt) => {
     }
   } = params;
 
-  if (type !== "instanced") {
-    throw new Error("PERFORMER_NOT_INSTANCED");
+  const tmpPath = path.join(folder, "tmp");
+  const distPath = path.join(folder, "dist");
+
+  if (!fs.existsSync(tmpPath)) {
+    fs.mkdirSync(tmpPath);
   }
 
   const watcher = async (operation, cxt) => {
@@ -111,7 +114,7 @@ export const start = (params, cxt) => {
               - minikube
       `;
 
-    const volumeTmpPath = path.join(folder, "tmp", "volume.yaml");
+    const volumeTmpPath = path.join(tmpPath, "volume.yaml");
     fs.writeFileSync(volumeTmpPath, volumeInfo)
     const volout = await exec(["kubectl apply -f " + volumeTmpPath], {}, {}, cxt);
 
@@ -119,8 +122,8 @@ export const start = (params, cxt) => {
       data: volout.stdout
     }, cxt);
 
-    const servicePath = path.join(folder, "dist", "service.yaml");
-    const serviceTmpPath = path.join(folder, "tmp", "service.yaml");
+    const servicePath = path.join(distPath, "service.yaml");
+    const serviceTmpPath = path.join(tmpPath, "service.yaml");
 
     modify(folder, "service.yaml", content => {
       content.metadata.namespace = featureid + "-" + content.metadata.namespace;
@@ -134,8 +137,8 @@ export const start = (params, cxt) => {
       data: "Setting stateful config..."
     }, cxt);
 
-    const statefulPath = path.join(folder, "dist", "stateful.yaml");
-    const statefulTmpPath = path.join(folder, "tmp", "stateful.yaml");
+    const statefulPath = path.join(distPath, "stateful.yaml");
+    const statefulTmpPath = path.join(tmpPath, "stateful.yaml");
 
     modify(folder, "stateful.yaml", content => {
       content.metadata.namespace = featureid + "-" + content.metadata.namespace;
@@ -209,9 +212,22 @@ export const start = (params, cxt) => {
     });
 
 
+    let found = true;
+    try {
+      const deligosut = await exec(["kubectl get -f " + statefulTmpPath], {}, {}, cxt);
+      IO.sendOutput(deligosut, cxt);
+    } catch (e) {
+      found = false;
+      IO.sendEvent("warning", {
+        data: "Stateful set is not present..."
+      }, cxt);
+    }
 
-    const deligosut = await exec(["kubectl delete -f " + statefulTmpPath], {}, {}, cxt);
-    IO.sendOutput(deligosut, cxt);
+    if (found) {
+      const deligosut = await exec(["kubectl delete -f " + statefulTmpPath], {}, {}, cxt);
+      IO.sendOutput(deligosut, cxt);
+    }
+
 
 
     await wait(2500);
