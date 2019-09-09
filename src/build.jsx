@@ -21,7 +21,9 @@ import * as JsonUtils from '@nebulario/core-json'
 export const clear = async (params, cxt) => {
 
   const {
+    performers,
     performer: {
+      dependents,
       type,
       code: {
         paths: {
@@ -35,6 +37,39 @@ export const clear = async (params, cxt) => {
 
   if (type !== "instanced") {
     throw new Error("PERFORMER_NOT_INSTANCED");
+  }
+
+
+  for (const depSrv of dependents) {
+    const depSrvPerformer = _.find(performers, {
+      performerid: depSrv.moduleid
+    });
+
+    if (depSrvPerformer) {
+      IO.sendEvent("out", {
+        data: "Performing dependent found " + depSrv.moduleid
+      }, cxt);
+
+      if (depSrvPerformer.linked.includes("build")) {
+
+        IO.sendEvent("info", {
+          data: " - Linked " + depSrv.moduleid
+        }, cxt);
+
+        JsonUtils.sync(folder, {
+          filename: "config.json",
+          path: "dependencies." + depSrv.moduleid + ".version",
+          version: "file:./../" + depSrv.moduleid
+        });
+
+      } else {
+        IO.sendEvent("warning", {
+          data: " - Not linked " + depSrv.moduleid
+        }, cxt);
+      }
+
+
+    }
   }
 
   try {
