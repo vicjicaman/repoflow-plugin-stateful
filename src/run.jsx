@@ -28,7 +28,7 @@ const modify = (folder, compFile, func) => {
   const content = YAML.parse(raw);
   const mod = func(content);
 
-  fs.writeFileSync(destFile, YAML.stringify(mod, 10, 2), "utf8");
+  fs.writeFileSync(destFile, YAML.stringify(mod, 10, 2).replace("- yes", "- 'yes'"), "utf8");
 }
 
 
