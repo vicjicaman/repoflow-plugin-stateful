@@ -69,8 +69,8 @@ export const start = (params, cxt) => {
         dependencies
       }
     },
-    feature: {
-      featureid
+    instance: {
+      instanceid
     }
   } = params;
 
@@ -95,7 +95,7 @@ export const start = (params, cxt) => {
     apiVersion: v1
     kind: PersistentVolume
     metadata:
-      name: volume-` + featureid + "-" + performerid + `
+      name: volume-` + instanceid + "-" + performerid + `
     spec:
       storageClassName: local-storage
       accessModes:
@@ -103,7 +103,7 @@ export const start = (params, cxt) => {
       capacity:
         storage: 50Mi
       hostPath:
-        path: /data/` + featureid + `/` + performerid + `/
+        path: /data/` + instanceid + `/` + performerid + `/
       nodeAffinity:
         required:
           nodeSelectorTerms:
@@ -126,7 +126,7 @@ export const start = (params, cxt) => {
     const serviceTmpPath = path.join(tmpPath, "service.yaml");
 
     modify(folder, "service.yaml", content => {
-      content.metadata.namespace = featureid + "-" + content.metadata.namespace;
+      content.metadata.namespace = instanceid + "-" + content.metadata.namespace;
       return content;
     });
 
@@ -141,7 +141,7 @@ export const start = (params, cxt) => {
     const statefulTmpPath = path.join(tmpPath, "stateful.yaml");
 
     modify(folder, "stateful.yaml", content => {
-      content.metadata.namespace = featureid + "-" + content.metadata.namespace;
+      content.metadata.namespace = instanceid + "-" + content.metadata.namespace;
 
       content.spec.volumeClaimTemplates = [{
         metadata: {
