@@ -1,25 +1,14 @@
-import _ from 'lodash'
-import fs from 'fs-extra'
-import path from 'path'
-import YAML from 'yamljs';
-import {
-  exec,
-  spawn,
-  wait
-} from '@nebulario/core-process';
-import {
-  Operation,
-  IO,
-  Watcher
-} from '@nebulario/core-plugin-request';
+import _ from "lodash";
+import fs from "fs-extra";
+import path from "path";
+import YAML from "yamljs";
+import { exec, spawn, wait } from "@nebulario/core-process";
+import { Operation, IO, Watcher } from "@nebulario/core-plugin-request";
 
-import * as Config from '@nebulario/core-config';
-import * as JsonUtils from '@nebulario/core-json'
-
-
+import * as Config from "@nebulario/core-config";
+import * as JsonUtils from "@nebulario/core-json";
 
 export const clear = async (params, cxt) => {
-
   const {
     performers,
     performer: {
@@ -27,9 +16,7 @@ export const clear = async (params, cxt) => {
       type,
       code: {
         paths: {
-          absolute: {
-            folder
-          }
+          absolute: { folder }
         }
       }
     }
@@ -39,63 +26,69 @@ export const clear = async (params, cxt) => {
     throw new Error("PERFORMER_NOT_INSTANCED");
   }
 
-
   for (const depSrv of dependents) {
     const depSrvPerformer = _.find(performers, {
       performerid: depSrv.moduleid
     });
 
     if (depSrvPerformer) {
-      IO.sendEvent("out", {
-        data: "Performing dependent found " + depSrv.moduleid
-      }, cxt);
+      IO.sendEvent(
+        "out",
+        {
+          data: "Performing dependent found " + depSrv.moduleid
+        },
+        cxt
+      );
 
-      if (depSrvPerformer.linked.includes("build")) {
-
-        IO.sendEvent("info", {
-          data: " - Linked " + depSrv.moduleid
-        }, cxt);
+      if (depSrvPerformer.linked) {
+        IO.sendEvent(
+          "info",
+          {
+            data: " - Linked " + depSrv.moduleid
+          },
+          cxt
+        );
 
         JsonUtils.sync(folder, {
           filename: "config.json",
           path: "dependencies." + depSrv.moduleid + ".version",
           version: "file:./../" + depSrv.moduleid
         });
-
       } else {
-        IO.sendEvent("warning", {
-          data: " - Not linked " + depSrv.moduleid
-        }, cxt);
+        IO.sendEvent(
+          "warning",
+          {
+            data: " - Not linked " + depSrv.moduleid
+          },
+          cxt
+        );
       }
-
-
     }
   }
 
   try {
     await Config.clear(folder);
   } catch (e) {
-    IO.sendEvent("error", {
-      data: e.toString()
-    }, cxt);
+    IO.sendEvent(
+      "error",
+      {
+        data: e.toString()
+      },
+      cxt
+    );
     throw e;
   }
 
   return "Configuration cleared";
-}
-
-
+};
 
 export const init = async (params, cxt) => {
-
   const {
     performer: {
       type,
       code: {
         paths: {
-          absolute: {
-            folder
-          }
+          absolute: { folder }
         }
       }
     }
@@ -108,25 +101,26 @@ export const init = async (params, cxt) => {
   try {
     await Config.init(folder);
   } catch (e) {
-    IO.sendEvent("error", {
-      data: e.toString()
-    }, cxt);
+    IO.sendEvent(
+      "error",
+      {
+        data: e.toString()
+      },
+      cxt
+    );
     throw e;
   }
 
   return "Config service initialized";
-}
+};
 
 export const start = (params, cxt) => {
-
   const {
     performer: {
       type,
       code: {
         paths: {
-          absolute: {
-            folder
-          }
+          absolute: { folder }
         }
       }
     }
@@ -136,47 +130,57 @@ export const start = (params, cxt) => {
     throw new Error("PERFORMER_NOT_INSTANCED");
   }
 
-
   const configPath = path.join(folder, "config.json");
   const servicePath = path.join(folder, "service.yaml");
   const statefulPath = path.join(folder, "stateful.yaml");
 
-
   const watcher = async (operation, cxt) => {
+    const { operationid } = operation;
 
-    const {
-      operationid
-    } = operation;
+    IO.sendEvent(
+      "out",
+      {
+        operationid,
+        data: "Watching config changes for " + configPath
+      },
+      cxt
+    );
 
-    IO.sendEvent("out", {
-      operationid,
-      data: "Watching config changes for " + configPath
-    }, cxt);
-
-    await build(operation, params, cxt);
+    build(operation, params, cxt);
 
     const watcherConfig = Watcher.watch(configPath, () => {
-      IO.sendEvent("out", {
-        operationid,
-        data: "config.json changed..."
-      }, cxt);
+      IO.sendEvent(
+        "out",
+        {
+          operationid,
+          data: "config.json changed..."
+        },
+        cxt
+      );
       build(operation, params, cxt);
     });
     const watcherService = Watcher.watch(servicePath, () => {
-      IO.sendEvent("out", {
-        operationid,
-        data: "service.yaml changed..."
-      }, cxt);
+      IO.sendEvent(
+        "out",
+        {
+          operationid,
+          data: "service.yaml changed..."
+        },
+        cxt
+      );
       build(operation, params, cxt);
     });
     const watcherStateful = Watcher.watch(statefulPath, () => {
-      IO.sendEvent("out", {
-        operationid,
-        data: "stateful.yaml changed..."
-      }, cxt);
+      IO.sendEvent(
+        "out",
+        {
+          operationid,
+          data: "stateful.yaml changed..."
+        },
+        cxt
+      );
       build(operation, params, cxt);
     });
-
 
     while (operation.status !== "stopping") {
       await wait(2500);
@@ -187,55 +191,47 @@ export const start = (params, cxt) => {
     watcherService.close();
     await wait(100);
 
-    IO.sendEvent("stopped", {
-      operationid,
-      data: ""
-    }, cxt);
-  }
-
+    IO.sendEvent(
+      "stopped",
+      {
+        operationid,
+        data: ""
+      },
+      cxt
+    );
+  };
 
   return {
     promise: watcher,
     process: null
   };
-}
-
-
-
+};
 
 const build = (operation, params, cxt) => {
-
   const {
     performer: {
       type,
       code: {
         paths: {
-          absolute: {
-            folder
-          }
+          absolute: { folder }
         }
       }
     }
   } = params;
 
-  const {
-    operationid
-  } = operation;
+  const { operationid } = operation;
 
   try {
-
-    IO.sendEvent("out", {
-      operationid,
-      data: "Start building config..."
-    }, cxt);
+    IO.sendEvent(
+      "out",
+      {
+        operationid,
+        data: "Start building config..."
+      },
+      cxt
+    );
 
     Config.build(folder);
-
-    IO.sendEvent("done", {
-      operationid,
-      data: "Config generated: dist/config.json"
-    }, cxt);
-
 
     const config = JsonUtils.load(path.join(folder, "config.json"));
     const values = Config.values(folder, config);
@@ -253,21 +249,50 @@ const build = (operation, params, cxt) => {
 
       const raw = fs.readFileSync(srcFile, "utf8");
       const convert = Config.replace(raw, values);
+
       fs.writeFileSync(destFile, convert, "utf8");
+      postProcessEnv(destFile);
+
+      const raw2 = fs.readFileSync(destFile, "utf8");
+      fs.writeFileSync(destFile, raw2.replace(new RegExp("- yes", "g"), "- 'yes'"), "utf8");
     }
 
-
-    IO.sendEvent("done", {
-      operationid,
-      data: JSON.stringify(values, null, 2)
-    }, cxt);
-
-
+    IO.sendEvent(
+      "done",
+      {
+        operationid,
+        data: "Config generated: dist/config.json"
+      },
+      cxt
+    );
   } catch (e) {
-    IO.sendEvent("error", {
-      operationid,
-      data: e.toString()
-    }, cxt);
+    IO.sendEvent(
+      "error",
+      {
+        operationid,
+        data: e.toString()
+      },
+      cxt
+    );
+  }
+};
+
+const postProcessEnv = file => {
+  const ent = JsonUtils.load(file, true);
+
+  if (_.get(ent, "spec.template.spec.containers", null)) {
+    ent.spec.template.spec.containers = ent.spec.template.spec.containers.map(
+      cont => {
+        if (cont.env) {
+          cont.env = cont.env.map(entry => {
+            entry.value = entry.value.toString();
+            return entry;
+          });
+        }
+        return cont;
+      }
+    );
   }
 
-}
+  JsonUtils.save(file, ent, true);
+};

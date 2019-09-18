@@ -13,23 +13,34 @@ import {
 import * as JsonUtils from '@nebulario/core-json';
 
 
-const modify = (folder, compFile, func) => {
-  const inputPath = path.join(folder, "dist");
-  const outputPath = path.join(folder, "tmp");
+const copy = (source, target) => {
+  const content = fs.readFileSync(source, "utf8");
+  fs.writeFileSync(target, content, "utf8");
+};
 
-  if (!fs.existsSync(outputPath)) {
-    fs.mkdirSync(outputPath);
+const transformValue = (file, capture, transform) => {
+  const content = fs.readFileSync(file, "utf8");
+  const match = capture.exec(content);
+
+  if (match) {
+    const val = _.trim(match[1], "'");
+
+    const tranf = transform(val);
+
+    const mod = content.replace(new RegExp(val, "g"), tranf);
+
+    fs.writeFileSync(file, mod, "utf8");
   }
+};
 
-  const srcFile = path.join(inputPath, compFile);
-  const destFile = path.join(outputPath, compFile);
+const modify = (file, func) => {
+  const raw = fs.readFileSync(file, "utf8");
 
-  const raw = fs.readFileSync(srcFile, "utf8");
   const content = YAML.parse(raw);
   const mod = func(content);
 
-  fs.writeFileSync(destFile, YAML.stringify(mod, 10, 2).replace("- yes", "- 'yes'"), "utf8");
-}
+  fs.writeFileSync(file, YAML.stringify(mod, 10, 2), "utf8");
+};
 
 
 const LocalModify = (inputPath, compFile, func) => {
@@ -125,8 +136,15 @@ export const start = (params, cxt) => {
     const servicePath = path.join(distPath, "service.yaml");
     const serviceTmpPath = path.join(tmpPath, "service.yaml");
 
-    modify(folder, "service.yaml", content => {
-      content.metadata.namespace = instanceid + "-" + content.metadata.namespace;
+    copy(servicePath, serviceTmpPath);
+
+    transformValue(
+      serviceTmpPath,
+      /namespace: (.+)/g,
+      val => instanceid + "-" + val
+    );
+
+    modify(serviceTmpPath, content => {
       return content;
     });
 
@@ -140,8 +158,21 @@ export const start = (params, cxt) => {
     const statefulPath = path.join(distPath, "stateful.yaml");
     const statefulTmpPath = path.join(tmpPath, "stateful.yaml");
 
-    modify(folder, "stateful.yaml", content => {
-      content.metadata.namespace = instanceid + "-" + content.metadata.namespace;
+
+    copy(statefulPath, statefulTmpPath);
+
+    transformValue(
+      statefulTmpPath,
+      /\s*name: HOST\s*value: (.+)/g,
+      val => instanceid + "-" + val
+    );
+    transformValue(
+      statefulTmpPath,
+      /namespace: (.+)/g,
+      val => instanceid + "-" + val
+    );
+
+    modify(statefulTmpPath, content => {
 
       content.spec.volumeClaimTemplates = [{
         metadata: {
@@ -168,7 +199,7 @@ export const start = (params, cxt) => {
             data: "Performing dependent found " + depSrv.moduleid
           }, cxt);
 
-          if (depSrvPerformer.linked.includes("run")) {
+          if (depSrvPerformer.linked) {
 
             IO.sendEvent("info", {
               data: " - Linked " + depSrv.moduleid
@@ -212,6 +243,9 @@ export const start = (params, cxt) => {
     });
 
 
+    const raw2 = fs.readFileSync(statefulTmpPath, "utf8");
+    fs.writeFileSync(statefulTmpPath, raw2.replace(new RegExp("- yes", "g"), "- 'yes'"), "utf8");
+
     let found = true;
     try {
       const deligosut = await exec(["kubectl get -f " + statefulTmpPath], {}, {}, cxt);
@@ -236,6 +270,8 @@ export const start = (params, cxt) => {
     IO.sendOutput(igosut, cxt);
 
     const serviceContent = JsonUtils.load(serviceTmpPath, true);
+
+    IO.sendEvent("done", {}, cxt);
 
     while (operation.status !== "stopping") {
 

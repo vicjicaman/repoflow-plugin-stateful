@@ -36,7 +36,7 @@
     "analyze": "webpack --config webpack.config.js --env.analyze"
   },
   "dependencies": {
-    "@nebulario/core-config": "1.70.2-master",
+    "@nebulario/core-config": "link:./../core-config",
     "@nebulario/core-json": "1.70.1-master",
     "@nebulario/core-plugin-request": "1.70.8-master",
     "@nebulario/core-process": "1.70.1-master",
