@@ -1,67 +1,53 @@
-import _ from 'lodash'
-import fs from 'fs-extra'
-import path from 'path'
-import YAML from 'yamljs';
-import {
-  spawn,
-  wait,
-  exec
-} from '@nebulario/core-process';
-import {
-  IO
-} from '@nebulario/core-plugin-request';
-import * as JsonUtils from '@nebulario/core-json';
+import _ from "lodash";
+import fs from "fs-extra";
+import path from "path";
+import { spawn, wait, exec } from "@nebulario/core-process";
+import { IO } from "@nebulario/core-plugin-request";
+import * as JsonUtils from "@nebulario/core-json";
+import * as Cluster from "@nebulario/core-cluster";
 
+export const clear = async (params, cxt) => {
+  const {
+    performer: {
+      type,
+      code: {
+        paths: {
+          absolute: { folder }
+        }
+      }
+    }
+  } = params;
 
-const copy = (source, target) => {
-  const content = fs.readFileSync(source, "utf8");
-  fs.writeFileSync(target, content, "utf8");
+  const handlers = {
+    onInfo: (info, { file }) => {
+      info && IO.sendOutput(info, cxt);
+    },
+    onRemoved: (info, { file }) => {
+      IO.sendOutput(info, cxt);
+      IO.sendEvent(
+        "warning",
+        {
+          data: file + " removed..."
+        },
+        cxt
+      );
+    },
+    onNotFound: ({ file }) => {
+      IO.sendEvent(
+        "warning",
+        {
+          data: file + " is not present..."
+        },
+        cxt
+      );
+    }
+  };
+
+  await Cluster.Control.remove(folder, "stateful.yaml", handlers, cxt);
+  await Cluster.Control.remove(folder, "service.yaml", handlers, cxt);
 };
-
-const transformValue = (file, capture, transform) => {
-  const content = fs.readFileSync(file, "utf8");
-  const match = capture.exec(content);
-
-  if (match) {
-    const val = _.trim(match[1], "'");
-
-    const tranf = transform(val);
-
-    const mod = content.replace(new RegExp(val, "g"), tranf);
-
-    fs.writeFileSync(file, mod, "utf8");
-  }
-};
-
-const modify = (file, func) => {
-  const raw = fs.readFileSync(file, "utf8");
-
-  const content = YAML.parse(raw);
-  const mod = func(content);
-
-  fs.writeFileSync(file, YAML.stringify(mod, 10, 2), "utf8");
-};
-
-
-const LocalModify = (inputPath, compFile, func) => {
-  const outputPath = path.join(folder, "tmp");
-
-  if (!fs.existsSync(outputPath)) {
-    fs.mkdirSync(outputPath);
-  }
-
-  const srcFile = path.join(inputPath, compFile);
-  const destFile = path.join(outputPath, compFile);
-
-  const raw = fs.readFileSync(srcFile, "utf8");
-  const content = YAML.parse(raw);
-  const mod = func(content);
-
-  fs.writeFileSync(destFile, YAML.stringify(mod, 10, 2), "utf8");
-}
 
 export const start = (params, cxt) => {
-
   const {
     performers,
     performer,
@@ -70,43 +56,39 @@ export const start = (params, cxt) => {
       type,
       code: {
         paths: {
-          absolute: {
-            folder
-          }
+          absolute: { folder }
         }
       },
       dependents,
-      module: {
-        dependencies
-      }
+      module: { dependencies }
     },
-    instance: {
-      instanceid
-    }
+    instance: { instanceid }
   } = params;
 
   const tmpPath = path.join(folder, "tmp");
   const distPath = path.join(folder, "dist");
 
-  if (!fs.existsSync(tmpPath)) {
-    fs.mkdirSync(tmpPath);
-  }
+  const startOp = async (operation, cxt) => {
+    IO.sendEvent(
+      "out",
+      {
+        data: "Setting service config..."
+      },
+      cxt
+    );
 
-  const watcher = async (operation, cxt) => {
-
-    const {
-      operationid
-    } = operation;
-
-    IO.sendEvent("out", {
-      data: "Setting service config..."
-    }, cxt);
-
-    const volumeInfo = `
+    const volumeTmpPath = path.join(tmpPath, "volume.yaml");
+    fs.writeFileSync(
+      volumeTmpPath,
+      `
     apiVersion: v1
     kind: PersistentVolume
     metadata:
-      name: volume-` + instanceid + "-" + performerid + `
+      name: volume-` +
+        instanceid +
+        "-" +
+        performerid +
+        `
     spec:
       storageClassName: local-storage
       accessModes:
@@ -114,7 +96,11 @@ export const start = (params, cxt) => {
       capacity:
         storage: 50Mi
       hostPath:
-        path: /data/` + instanceid + `/` + performerid + `/
+        path: /data/` +
+        instanceid +
+        `/` +
+        performerid +
+        `/
       nodeAffinity:
         required:
           nodeSelectorTerms:
@@ -123,170 +109,78 @@ export const start = (params, cxt) => {
               operator: In
               values:
               - minikube
-      `;
-
-    const volumeTmpPath = path.join(tmpPath, "volume.yaml");
-    fs.writeFileSync(volumeTmpPath, volumeInfo)
-    const volout = await exec(["kubectl apply -f " + volumeTmpPath], {}, {}, cxt);
-
-    IO.sendEvent("out", {
-      data: volout.stdout
-    }, cxt);
-
-    const servicePath = path.join(distPath, "service.yaml");
-    const serviceTmpPath = path.join(tmpPath, "service.yaml");
-
-    copy(servicePath, serviceTmpPath);
-
-    transformValue(
-      serviceTmpPath,
-      /namespace: (.+)/g,
-      val => instanceid + "-" + val
+      `
     );
 
-    modify(serviceTmpPath, content => {
-      return content;
-    });
+    const volout = await Cluster.Control.apply(volumeTmpPath, cxt);
+    IO.sendOutput(volout, cxt);
 
-    const nsout = await exec(["kubectl apply -f " + serviceTmpPath], {}, {}, cxt);
-    IO.sendOutput(nsout, cxt);
-
-    IO.sendEvent("out", {
-      data: "Setting stateful config..."
-    }, cxt);
-
-    const statefulPath = path.join(distPath, "stateful.yaml");
-    const statefulTmpPath = path.join(tmpPath, "stateful.yaml");
-
-
-    copy(statefulPath, statefulTmpPath);
-
-    transformValue(
-      statefulTmpPath,
-      /\s*name: HOST\s*value: (.+)/g,
-      val => instanceid + "-" + val
-    );
-    transformValue(
-      statefulTmpPath,
-      /namespace: (.+)/g,
-      val => instanceid + "-" + val
-    );
-
-    modify(statefulTmpPath, content => {
-
-      content.spec.volumeClaimTemplates = [{
-        metadata: {
-          name: content.spec.volumeClaimTemplates[0].metadata.name
-        },
-        spec: {
-          accessModes: ["ReadWriteOnce"],
-          storageClassName: "local-storage",
-          resources: {
-            requests: {
-              storage: "50Mi"
-            }
-          }
-        }
-      }];
-
-      for (const depSrv of dependents) {
-        const depSrvPerformer = _.find(performers, {
-          performerid: depSrv.moduleid
-        });
-
-        if (depSrvPerformer) {
-          IO.sendEvent("out", {
-            data: "Performing dependent found " + depSrv.moduleid
-          }, cxt);
-
-          if (depSrvPerformer.linked) {
-
-            IO.sendEvent("info", {
-              data: " - Linked " + depSrv.moduleid
-            }, cxt);
-
-            const serviceLabel = _.find(depSrvPerformer.labels, lbl => lbl.startsWith("service:"));
-
-            if (serviceLabel) {
-              const service = serviceLabel.split(":")[1];
-              IO.sendEvent("out", {
-                data: " - Service container " + service
-              }, cxt);
-
-
-              const currCont = _.find(content.spec.template.spec.containers, ({
-                name
-              }) => name === service);
-
-              if (currCont) {
-                const [imgName, imgVer] = currCont.image.split(":");
-                currCont.image = imgName + ":linked";
-              }
-
-            } else {
-              IO.sendEvent("warning", {
-                data: " - No service label"
-              }, cxt);
-            }
-          } else {
-            IO.sendEvent("warning", {
-              data: " - Not linked " + depSrv.moduleid
-            }, cxt);
-          }
-
-
-        }
-
+    const serviceDevPath = await Cluster.Dev.transform(
+      "service.yaml",
+      distPath,
+      tmpPath,
+      async content => {
+        content.metadata.namespace =
+          instanceid + "-" + content.metadata.namespace;
+        return content;
       }
+    );
 
-      return content;
-    });
+    const srvout = await Cluster.Control.apply(serviceDevPath, cxt);
+    IO.sendOutput(srvout, cxt);
 
+    IO.sendEvent(
+      "out",
+      {
+        data: "Setting stateful config..."
+      },
+      cxt
+    );
 
-    const raw2 = fs.readFileSync(statefulTmpPath, "utf8");
-    fs.writeFileSync(statefulTmpPath, raw2.replace(new RegExp("- yes", "g"), "- 'yes'"), "utf8");
+    const statefulDevPath = await Cluster.Dev.transform(
+      "stateful.yaml",
+      distPath,
+      tmpPath,
+      async content => {
+        content.metadata.namespace =
+          instanceid + "-" + content.metadata.namespace;
 
-    let found = true;
-    try {
-      const deligosut = await exec(["kubectl get -f " + statefulTmpPath], {}, {}, cxt);
-      IO.sendOutput(deligosut, cxt);
-    } catch (e) {
-      found = false;
-      IO.sendEvent("warning", {
-        data: "Stateful set is not present..."
-      }, cxt);
-    }
+        content.spec.volumeClaimTemplates = [
+          {
+            metadata: {
+              name: content.spec.volumeClaimTemplates[0].metadata.name
+            },
+            spec: {
+              accessModes: ["ReadWriteOnce"],
+              storageClassName: "local-storage",
+              resources: {
+                requests: {
+                  storage: "50Mi"
+                }
+              }
+            }
+          }
+        ];
 
-    if (found) {
-      const deligosut = await exec(["kubectl delete -f " + statefulTmpPath], {}, {}, cxt);
-      IO.sendOutput(deligosut, cxt);
-    }
+        return content;
+      }
+    );
 
-
-
-    await wait(2500);
-
-    const igosut = await exec(["kubectl apply -f " + statefulTmpPath], {}, {}, cxt);
+    const igosut = await Cluster.Control.apply(statefulDevPath, cxt);
     IO.sendOutput(igosut, cxt);
-
-    const serviceContent = JsonUtils.load(serviceTmpPath, true);
 
     IO.sendEvent("done", {}, cxt);
 
     while (operation.status !== "stopping") {
-
-      await wait(2500);
+      await wait(100); //wait(2500);
     }
-
-    IO.sendEvent("stopped", {
-      operationid,
-      data: "Stopping service config..."
-    }, cxt);
-  }
-
+  };
 
   return {
-    promise: watcher,
+    promise: startOp,
     process: null
   };
-}
+};
+
+/*
+ */
