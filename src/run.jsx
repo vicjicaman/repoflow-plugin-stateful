@@ -68,6 +68,10 @@ export const start = (params, cxt) => {
   const tmpPath = path.join(folder, "tmp");
   const distPath = path.join(folder, "dist");
 
+  if (!fs.existsSync(tmpPath)) {
+    fs.mkdirSync(tmpPath);
+  }
+
   const startOp = async (operation, cxt) => {
     IO.sendEvent(
       "out",
